@@ -210,7 +210,7 @@
 <div class="container">
   <div class="header">
     <h1>Voice Claude</h1>
-    <p>hold to talk · release to send</p>
+    <p>tap to talk · tap again to send</p>
   </div>
 
   <!-- API Key Setup Screen -->
@@ -248,7 +248,7 @@
     </div>
 
     <div style="display:flex;flex-direction:column;align-items:center">
-      <div class="btn-label" id="btnLabel">hold to speak</div>
+      <div class="btn-label" id="btnLabel">tap to speak</div>
       <button class="stop-btn" id="stopBtn" onclick="stopSpeaking()">■ stop</button>
     </div>
 
@@ -296,6 +296,7 @@
   let recognition = null;
   let isRecording = false;
   let currentTranscript = '';
+  let lastInterim = '';
   let speechSynth = window.speechSynthesis;
   let conversationHistory = [];
   let audioCtx = null, analyser = null, volInterval = null, mediaStream = null;
@@ -313,15 +314,12 @@
     errorMsg = document.getElementById('errorMsg');
     btnLabel = document.getElementById('btnLabel');
 
-    // Touch events
-    btn.addEventListener('touchstart', e => { e.preventDefault(); startRecording(); }, { passive: false });
-    btn.addEventListener('touchend', e => { e.preventDefault(); stopRecording(); }, { passive: false });
-    btn.addEventListener('mousedown', startRecording);
-    btn.addEventListener('mouseup', stopRecording);
+    // Toggle tap (tap to start, tap again to send)
+    btn.addEventListener('touchstart', e => { e.preventDefault(); toggleRecording(); }, { passive: false });
+    btn.addEventListener('click', e => { if (!('ontouchstart' in window)) toggleRecording(); });
 
-    // Spacebar
-    document.addEventListener('keydown', e => { if (e.code === 'Space' && !e.repeat) { e.preventDefault(); startRecording(); } });
-    document.addEventListener('keyup', e => { if (e.code === 'Space') { e.preventDefault(); stopRecording(); } });
+    // Spacebar toggle
+    document.addEventListener('keydown', e => { if (e.code === 'Space' && !e.repeat) { e.preventDefault(); toggleRecording(); } });
 
     // Load voices
     speechSynth.onvoiceschanged = () => speechSynth.getVoices();
@@ -335,14 +333,15 @@
     r.continuous = true; r.interimResults = true; r.lang = 'en-AU';
     r.onresult = (e) => {
       let final = '';
+      let interim = '';
       for (let i = e.resultIndex; i < e.results.length; i++) {
         if (e.results[i].isFinal) final += e.results[i][0].transcript;
-        else {
-          const liveEl = document.getElementById('liveInterim');
-          if (liveEl) liveEl.textContent = e.results[i][0].transcript || currentTranscript;
-        }
+        else interim += e.results[i][0].transcript;
       }
       if (final) currentTranscript = (currentTranscript + ' ' + final).trim();
+      if (interim) lastInterim = interim;
+      const liveEl = document.getElementById('liveInterim');
+      if (liveEl) liveEl.textContent = currentTranscript || interim;
     };
     r.onerror = (e) => { if (e.error !== 'aborted') showError('Mic error: ' + e.error); };
     return r;
@@ -370,14 +369,19 @@
   }
 
   // ── PTT ────────────────────────────────────────────────
+  function toggleRecording() {
+    if (isRecording) stopRecording();
+    else startRecording();
+  }
+
   function startRecording() {
     if (isRecording) return;
     if (speechSynth.speaking) speechSynth.cancel();
-    clearError(); isRecording = true; currentTranscript = '';
+    clearError(); isRecording = true; currentTranscript = ''; lastInterim = '';
     btn.classList.add('active');
     btnWrap.classList.add('recording-active');
     setStatus('recording', '● recording');
-    btnLabel.textContent = 'release to send';
+    btnLabel.textContent = 'tap again to send';
     addMessage('user-live', '');
     recognition = setupRecognition();
     if (recognition) recognition.start();
@@ -395,8 +399,10 @@
     const liveEl = document.getElementById('liveInterim');
     if (liveEl) {
       liveEl.id = '';
-      if (!currentTranscript) { liveEl.closest('.msg')?.remove(); setStatus('', 'ready'); return; }
-      liveEl.textContent = currentTranscript;
+      const best = currentTranscript || lastInterim;
+      if (!best) { liveEl.closest('.msg')?.remove(); setStatus('', 'ready'); return; }
+      currentTranscript = best;
+      liveEl.textContent = best;
     }
     if (currentTranscript.trim()) sendToClaude(currentTranscript.trim());
     else setStatus('', 'ready');
@@ -430,7 +436,8 @@
           'Content-Type': 'application/json',
           'x-api-key': API_KEY,
           'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true'
+          'anthropic-dangerous-direct-browser-access': 'true',
+          'anthropic-beta': 'messages-2023-12-15'
         },
         body: JSON.stringify({
           model: 'claude-sonnet-4-20250514',
