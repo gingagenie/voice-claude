@@ -459,16 +459,37 @@
   }
 
   // ── TTS ────────────────────────────────────────────────
+  function getBestVoice() {
+    const voices = speechSynth.getVoices();
+    // Priority list - these are the good ones across Android Chrome / desktop
+    const preferred = [
+      'Google UK English Male',
+      'Google UK English Female',
+      'Google Australian English',
+      'Google US English',
+      'Karen',      // macOS/iOS Australian
+      'Daniel',     // macOS/iOS UK
+      'Samantha',   // macOS US
+    ];
+    for (const name of preferred) {
+      const v = voices.find(v => v.name === name);
+      if (v) return v;
+    }
+    // Fallback: any remote/network voice (better quality than local)
+    const remote = voices.find(v => !v.localService && v.lang.startsWith('en'));
+    if (remote) return remote;
+    // Last resort: any English
+    return voices.find(v => v.lang.startsWith('en')) || null;
+  }
+
   function speak(text) {
     if (!text) return;
     speechSynth.cancel();
     const clean = text.replace(/[#*`_~\-]/g, '').replace(/\n+/g, ' ').trim();
     const u = new SpeechSynthesisUtterance(clean);
-    u.lang = 'en-AU'; u.rate = 1.05; u.pitch = 1;
-    const voices = speechSynth.getVoices();
-    const preferred = voices.find(v => v.lang.startsWith('en') && (v.name.includes('Daniel') || v.name.includes('Karen') || v.name.includes('Google') || v.name.includes('Samantha')))
-      || voices.find(v => v.lang.startsWith('en'));
-    if (preferred) u.voice = preferred;
+    u.lang = 'en-AU'; u.rate = 1.0; u.pitch = 1;
+    const best = getBestVoice();
+    if (best) u.voice = best;
     u.onstart = () => { btn.classList.add('speaking-state'); setStatus('speaking', '◎ speaking'); stopBtn.classList.add('visible'); };
     u.onend = () => { btn.classList.remove('speaking-state'); setStatus('', 'ready'); stopBtn.classList.remove('visible'); };
     u.onerror = () => { btn.classList.remove('speaking-state'); setStatus('', 'ready'); stopBtn.classList.remove('visible'); };
